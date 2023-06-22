@@ -3,6 +3,9 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/RedHatInsights/chrome-service-backend/config"
+	"github.com/google/uuid"
+	"github.com/segmentio/kafka-go"
 	"net/http"
 
 	"github.com/RedHatInsights/chrome-service-backend/rest/cloudevents"
@@ -12,6 +15,8 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 )
+
+const tenMB = 10e7
 
 type WSRequestPayload struct {
 	connectionhub.WsMessage
@@ -57,9 +62,28 @@ func HandleWsConnection(w http.ResponseWriter, r *http.Request) {
 		User:         identity.UserId,
 		Organization: identity.OrgId,
 		Roles:        []string{},
-		Conn:         &connectionhub.Connection{Send: make(chan []byte, 256), Ws: ws},
+		Conn: &connectionhub.Connection{
+			Send: make(chan []byte, 256),
+			Ws:   ws,
+			// We might be able to reuse the connection ID or something
+			ID: uuid.NewString(),
+		},
 	}
 	logrus.Infoln("New client added to the connection hub: ", client.User)
+	cfg := config.Get()
+	reader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:     cfg.KafkaConfig.KafkaBrokers,
+		GroupID:     client.Conn.ID,
+		StartOffset: kafka.LastOffset,
+		Topic:       "platform.chrome",
+		Logger:      kafka.LoggerFunc(logrus.Debugf),
+		ErrorLogger: kafka.LoggerFunc(logrus.Errorf),
+		MaxBytes:    tenMB,
+	})
+
+	client.Reader = reader
+	go connectionhub.StartKafkaReader(reader)
+	logrus.Infof("Created new kafka consumer for platform.chrome with uuid %s", client.Conn.ID)
 	connectionhub.ConnectionHub.Register <- client
 	go client.WritePump()
 	client.ReadPump()

@@ -11,7 +11,6 @@ import (
 	"github.com/RedHatInsights/chrome-service-backend/rest/connectionhub"
 	"github.com/RedHatInsights/chrome-service-backend/rest/database"
 	"github.com/RedHatInsights/chrome-service-backend/rest/featureflags"
-	"github.com/RedHatInsights/chrome-service-backend/rest/kafka"
 	m "github.com/RedHatInsights/chrome-service-backend/rest/middleware"
 	"github.com/RedHatInsights/chrome-service-backend/rest/routes"
 	"github.com/go-chi/chi/v5"
@@ -56,13 +55,14 @@ func main() {
 		subrouter.Route("/emit-message", routes.BroadcastMessage)
 	})
 
-	// We might want to setup some event listeners at some point, but the pod will
+	// We might want to set up some event listeners at some point, but the pod will
 	// have to restart for these to take effect. We can't enable and disable websockets on the fly
 	if featureflags.IsEnabled("chrome-service.websockets.enabled") {
 		// start the connection hub
 		go connectionhub.ConnectionHub.Run()
 		logrus.Infoln("Enabling WebSockets")
-		kafka.InitializeConsumers()
+		// Consumers are enabled on a per ws connection basis
+		//kafka.InitializeConsumers()
 		router.Route("/wss/chrome-service/v1/", func(subrouter chi.Router) {
 			subrouter.Route("/ws", routes.MakeWsRoute)
 		})

@@ -2,10 +2,25 @@ package connectionhub
 
 import (
 	"encoding/json"
+	"github.com/segmentio/kafka-go"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 60 * time.Second
+
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = (pongWait * 9) / 10
+
+	// Maximum message size allowed from peer.
+	maxMessageSize = 512
 )
 
 type clients = map[string]*Client
@@ -15,6 +30,7 @@ type Client struct {
 	Organization string
 	Roles        []string
 	Conn         *Connection
+	Reader       *kafka.Reader
 }
 
 type MessageDestinations struct {
@@ -87,7 +103,6 @@ func registerClient(c Client, h *connectionHub) {
 	}
 	registerClientRoles(c, h)
 	registerClientOrg(c, h)
-	logrus.Debugln("new client connected", c)
 }
 
 func unregisterClientOrg(c Client, h *connectionHub) {
@@ -179,24 +194,12 @@ func (h *connectionHub) Run() {
 	}
 }
 
-const (
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
-
-	// Maximum message size allowed from peer.
-	maxMessageSize = 512
-)
-
 func (c Client) ReadPump() {
 	conn := c.Conn
-	// close connection after client is was removed
+	// close connection after client is removed
 	defer func() {
+		logrus.Info(c)
+		c.Reader.Close()
 		ConnectionHub.Unregister <- c
 		conn.Ws.Close()
 	}()
@@ -217,7 +220,7 @@ func (c Client) ReadPump() {
 			break
 		}
 		var messagePayload WsMessage
-		json.Unmarshal(msg, &messagePayload)
+		err = json.Unmarshal(msg, &messagePayload)
 		if err != nil {
 			logrus.Errorln("Unable to unmarshall incoming WS message: ", err)
 			break
@@ -241,7 +244,10 @@ func (c Client) ReadPump() {
 
 // write writes a message with the given message type and payload.
 func (c *Connection) write(mt int, payload []byte) error {
-	c.Ws.SetWriteDeadline(time.Now().Add(writeWait))
+	err := c.Ws.SetWriteDeadline(time.Now().Add(writeWait))
+	if err != nil {
+		logrus.Errorf("Cannot write message %v", err)
+	}
 	return c.Ws.WriteMessage(mt, payload)
 }
 

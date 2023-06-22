@@ -1,11 +1,9 @@
-package cloudevents
+package connectionhub
 
 import (
 	"fmt"
 	"net/url"
 	"time"
-
-	"github.com/RedHatInsights/chrome-service-backend/rest/connectionhub"
 )
 
 // Cloud events spec: https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md
@@ -73,7 +71,7 @@ func WrapPayload[P any](payload P, source URI, id string, messageType string) En
 }
 
 type KafkaEnvelope struct {
-	Envelope[connectionhub.WsMessage]
+	Envelope[WsMessage]
 }
 
 func ValidatePayload(p KafkaEnvelope) error {
